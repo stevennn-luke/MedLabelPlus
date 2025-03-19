@@ -55,15 +55,8 @@ export default function MedicationOCRScreen({ route }) {
         const extractedText = result.data.responses[0].fullTextAnnotation?.text || 'No text found.';
         setRawText(extractedText);
 
-        // Extract potential medication names
-        const potentialMedNames = extractPotentialMedicationNames(extractedText);
-        
-        // Validate and fetch real medication information from the API
-        if (potentialMedNames.length > 0) {
-          await validateAndFetchMedicationInfo(potentialMedNames);
-        } else {
-          setError('Could not identify any medication names from the label.');
-        }
+        // Process each line from the OCR text
+        await processExtractedText(extractedText);
       } catch (error) {
         console.error('OCR Error:', error);
         setError('Failed to extract text from medication label.');
@@ -75,25 +68,226 @@ export default function MedicationOCRScreen({ route }) {
     extractText();
   }, [imageUri]);
 
-  const extractPotentialMedicationNames = (text) => {
-    // Preprocessing text
-    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-    const potentialNames = [];
+  const processExtractedText = async (text) => {
+    setFetchingDetails(true);
     
-    // Common medication name patterns
-    const commonMedPatterns = [
-      /\b(tablet|capsule|solution|suspension|injection)\b/i,
-      /\b\d+\s*(mg|mcg|ml|g)\b/i,
-      /\b(extended|controlled|delayed)\s*release\b/i
+    try {
+      // Your existing code...
+      // Split the text into lines and prepare for processing
+      const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+      
+      // Try direct API lookup for each non-empty line
+      let foundValidMed = false;
+      for (const line of lines) {
+        // Skip very short lines or lines that are likely not medication names
+        if (line.length < 3 || /^[0-9\s]+$/.test(line)) continue;
+        
+        // Clean the line by removing common noise and limiting to reasonable length
+        let cleanedLine = line;
+        
+        // Extract potential medication name from the line (limit to first 3 words)
+        const words = cleanedLine.split(/\s+/);
+        const potentialName = words.slice(0, Math.min(words.length, 3)).join(' ');
+        
+        // Try to validate with RxNav API
+        const isValidMed = await checkIfValidMedication(potentialName);
+        
+        if (isValidMed) {
+          // If we found a valid medication, stop checking other lines
+          foundValidMed = true;
+          break;
+        }
+      }
+      
+      // If no line matched a valid medication, try the fallback approaches
+      if (!foundValidMed) {
+        await handleFallbackApproach(lines);
+      }
+    } catch (error) {
+      console.error('Error processing text:', error);
+      // Set default medication info in case of error
+      setMedicationInfo({ name: 'Unknown Medication' });
+      setMedicationDetails({
+        brandName: 'Unknown',
+        genericName: 'Unknown',
+        activeIngredient: 'Unknown',
+        indications: 'Unknown',
+        manufacturer: 'Unknown',
+      });
+    } finally {
+      setFetchingDetails(false);
+    }
+  };
+
+  const checkIfValidMedication = async (name) => {
+    try {
+      // Special case for Vitamin C
+      if (name.toLowerCase().includes('vitamin c')) {
+        setMedicationInfo({ name: 'Vitamin C' });
+        setMedicationDetails({
+          brandName: 'Vitamin C',
+          genericName: 'Ascorbic Acid',
+          activeIngredient: 'Ascorbic Acid',
+          indications: 'Dietary Supplement, Antioxidant',
+          manufacturer: 'Unknown',
+        });
+        return true;
+      }
+      
+      // Use RxNav API for medication validation
+      const encodedName = encodeURIComponent(name);
+      const rxNavUrl = `https://rxnav.nlm.nih.gov/REST/drugs.json?name=${encodedName}`;
+      const rxResponse = await axios.get(rxNavUrl);
+      
+      if (rxResponse.data && rxResponse.data.drugGroup && 
+          rxResponse.data.drugGroup.conceptGroup) {
+        const concepts = rxResponse.data.drugGroup.conceptGroup;
+        let drugInfo = null;
+        
+        // Find the first group with drugs
+        for (const group of concepts) {
+          if (group.conceptProperties && group.conceptProperties.length > 0) {
+            drugInfo = group.conceptProperties[0];
+            break;
+          }
+        }
+        
+        if (drugInfo) {
+          // We found a valid medication in RxNav!
+          const confirmedName = drugInfo.name;
+          setMedicationInfo({ name: confirmedName });
+          
+          // Get more details using RxClass API
+          await fetchMedicationDetails(drugInfo);
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error(`Error validating medication name "${name}":`, error);
+    }
+    
+    return false;
+  };
+
+  const fetchMedicationDetails = async (drugInfo) => {
+    try {
+      const confirmedName = drugInfo.name;
+      const rxClassUrl = `https://rxnav.nlm.nih.gov/REST/rxclass/class/byDrugName.json?drugName=${encodeURIComponent(confirmedName)}&relaSource=MEDRT`;
+      let className = 'Unknown';
+      
+      try {
+        const classResponse = await axios.get(rxClassUrl);
+        if (classResponse.data && classResponse.data.rxclassDrugInfoList && 
+            classResponse.data.rxclassDrugInfoList.rxclassDrugInfo) {
+          const drugClasses = classResponse.data.rxclassDrugInfoList.rxclassDrugInfo;
+          if (drugClasses.length > 0) {
+            className = drugClasses[0].rxclassMinConceptItem.className;
+          }
+        }
+      } catch (classError) {
+        console.error('Error fetching class info:', classError);
+      }
+      
+      // Try getting more detailed info from RxNav
+      let activeIngredient = 'Unknown';
+      let synonym = drugInfo.synonym || 'Unknown';
+      
+      // Try to get ingredients
+      try {
+        const ingredientUrl = `https://rxnav.nlm.nih.gov/REST/rxcui/${drugInfo.rxcui}/related.json?tty=IN`;
+        const ingredientResponse = await axios.get(ingredientUrl);
+        
+        if (ingredientResponse.data && 
+            ingredientResponse.data.relatedGroup &&
+            ingredientResponse.data.relatedGroup.conceptGroup) {
+          const ingredients = ingredientResponse.data.relatedGroup.conceptGroup
+            .filter(group => group.tty === 'IN')
+            .flatMap(group => group.conceptProperties || []);
+            
+          if (ingredients.length > 0) {
+            activeIngredient = ingredients.map(ing => ing.name).join(', ');
+          }
+        }
+      } catch (ingredientError) {
+        console.error('Error fetching ingredients:', ingredientError);
+      }
+      
+      setMedicationDetails({
+        brandName: confirmedName,
+        genericName: synonym,
+        activeIngredient: activeIngredient,
+        indications: className || 'Unknown',
+        manufacturer: 'Unknown',
+      });
+    } catch (error) {
+      console.error('Error fetching medication details:', error);
+      setMedicationDetails({
+        brandName: drugInfo.name,
+        genericName: drugInfo.synonym || drugInfo.name,
+        activeIngredient: 'Unknown',
+        indications: 'Unknown',
+        manufacturer: 'Unknown',
+      });
+    }
+  };
+
+  const handleFallbackApproach = async (lines) => {
+    // Try to find the most likely medication name
+    const bestGuessName = findBestMedicationName(lines, rawText);
+    setMedicationInfo({ name: bestGuessName });
+    
+    // Check for common Indian pharmaceutical manufacturers
+    const indianManufacturers = [
+      'cipla', 'sun pharma', 'lupin', 'dr reddy', 'torrent', 'zydus', 
+      'ranbaxy', 'glenmark', 'alkem', 'mankind', 'intas', 'abbott'
     ];
+    
+    let manufacturer = 'Unknown';
+    for (const company of indianManufacturers) {
+      if (rawText.toLowerCase().includes(company)) {
+        manufacturer = company.charAt(0).toUpperCase() + company.slice(1);
+        break;
+      }
+    }
+    
+    // Check for common categories
+    let category = 'Pharmaceutical Medicine (Indian Region)';
+    const lowerText = rawText.toLowerCase();
+    if (lowerText.includes('ayur') || lowerText.includes('herbal')) {
+      category = 'Ayurvedic/Herbal Medicine';
+    } else if (lowerText.includes('homeo')) {
+      category = 'Homeopathic Medicine';
+    } else if (lowerText.includes('unani')) {
+      category = 'Unani Medicine';
+    } else if (lowerText.includes('siddha')) {
+      category = 'Siddha Medicine';
+    }
+    
+    setMedicationDetails({
+      brandName: bestGuessName,
+      genericName: 'Not found in medication database',
+      activeIngredient: 'Unknown',
+      indications: category,
+      manufacturer: manufacturer,
+    });
+  };
 
-    // Dictionary of common medication endings
-    const medSuffixes = ['in', 'ol', 'ide', 'ine', 'one', 'ate', 'ium', 'erol', 'arin', 'azole', 'mycin', 'cillin'];
-
+  const findBestMedicationName = (lines, fullText) => {
+    // Common medication patterns to help identify medication names
+    const medPatterns = [
+      /\b(tablet|capsule|solution|suspension|injection|syrup|chewable)\b/i,
+      /\b\d+\s*(mg|mcg|ml|g)\b/i,
+      /\b(extended|controlled|delayed)\s*release\b/i,
+      /\b(vitamin|supplement)\b/i,
+    ];
+    
+    let bestLine = '';
+    let bestScore = 0;
+    
     // Check each line for possible medication name
-    for (let i = 0; i < Math.min(lines.length, 15); i++) { // Focus on first 15 lines for better coverage
+    for (let i = 0; i < Math.min(lines.length, 15); i++) {
       const line = lines[i].trim();
-      if (!line || line.length < 3) continue; // Skip very short lines
+      if (!line || line.length < 3) continue;
       
       let score = 0;
       
@@ -101,17 +295,15 @@ export default function MedicationOCRScreen({ route }) {
       score += Math.max(0, 10 - i);
       
       // Check for common medication name patterns
-      for (const pattern of commonMedPatterns) {
+      for (const pattern of medPatterns) {
         if (pattern.test(line)) {
           score += 5;
         }
       }
       
-      // Check for common medication name suffixes
-      for (const suffix of medSuffixes) {
-        if (line.toLowerCase().includes(suffix)) {
-          score += 3;
-        }
+      // Special case for vitamins
+      if (/vitamin\s+[a-z]/i.test(line)) {
+        score += 10;
       }
       
       // Bonus for capitalized words that might be brand names
@@ -119,147 +311,22 @@ export default function MedicationOCRScreen({ route }) {
         score += 2;
       }
       
-      // Only consider lines with decent score
-      if (score >= 2) {
-        // Extract just the potential medication name without dosage
-        const possibleName = line.split(/\d+\s*(mg|mcg|ml|g)/i)[0].trim();
-        // Clean up the name further by removing common prefixes and extra text
-        const cleanedName = possibleName
-          .replace(/^(rx|prescription:?|medication:?|drug:?)\s*/i, '')
-          .trim();
-        
-        if (cleanedName && cleanedName.length >= 3) {
-          // Extract the first 1-3 words which are most likely to be the med name
-          const wordLimit = 3;
-          const words = cleanedName.split(/\s+/);
-          const nameCandidate = words.slice(0, Math.min(words.length, wordLimit)).join(' ');
-          
-          // Add to potential names with score for sorting
-          potentialNames.push({
-            name: nameCandidate,
-            score: score
-          });
-        }
+      // Update best guess if this line has a higher score
+      if (score > bestScore) {
+        bestScore = score;
+        // Extract first 1-3 words as likely medicine name
+        const words = line.split(/\s+/);
+        bestLine = words.slice(0, Math.min(words.length, 3)).join(' ');
       }
     }
     
-    // Sort by score (highest first) and return just the names
-    return potentialNames
-      .sort((a, b) => b.score - a.score)
-      .map(item => item.name);
-  };
-
-  const validateAndFetchMedicationInfo = async (potentialNames) => {
-    setFetchingDetails(true);
-    
-    // Try each potential name until we find a match
-    for (const medName of potentialNames) {
-      try {
-        // Try OpenFDA API first
-        const encodedName = encodeURIComponent(medName);
-        const apiUrl = `https://api.fda.gov/drug/label.json?search=(openfda.brand_name:${encodedName}+OR+openfda.generic_name:${encodedName})&limit=1`;
-        
-        const response = await axios.get(apiUrl);
-        
-        if (response.data && response.data.results && response.data.results.length > 0) {
-          const result = response.data.results[0];
-          const openfda = result.openfda || {};
-          
-          // We found a valid medication! Set the name and details
-          const confirmedName = openfda.brand_name ? 
-            openfda.brand_name[0] : 
-            (openfda.generic_name ? openfda.generic_name[0] : medName);
-          
-          setMedicationInfo({ name: confirmedName });
-          
-          // Get drug details from OpenFDA response
-          setMedicationDetails({
-            brandName: openfda.brand_name ? openfda.brand_name[0] : confirmedName,
-            genericName: openfda.generic_name ? openfda.generic_name[0] : 'Unknown',
-            activeIngredient: result.active_ingredient ? result.active_ingredient[0] : 'Unknown',
-            indications: result.indications_and_usage ? result.indications_and_usage[0] : 'Unknown',
-            warnings: result.warnings ? result.warnings[0] : 'Unknown',
-            dosage: result.dosage_and_administration ? result.dosage_and_administration[0] : 'Unknown',
-            interactions: result.drug_interactions ? result.drug_interactions[0] : 'Unknown',
-            manufacturer: openfda.manufacturer_name ? openfda.manufacturer_name[0] : 'Unknown',
-          });
-          
-          // We found a match, so we can stop checking other potential names
-          setFetchingDetails(false);
-          return;
-        }
-        
-        // If OpenFDA fails, try RxNav
-        const rxNavUrl = `https://rxnav.nlm.nih.gov/REST/drugs.json?name=${encodedName}`;
-        const rxResponse = await axios.get(rxNavUrl);
-        
-        if (rxResponse.data && rxResponse.data.drugGroup && 
-            rxResponse.data.drugGroup.conceptGroup) {
-          const concepts = rxResponse.data.drugGroup.conceptGroup;
-          let drugInfo = null;
-          
-          // Find the first group with drugs
-          for (const group of concepts) {
-            if (group.conceptProperties && group.conceptProperties.length > 0) {
-              drugInfo = group.conceptProperties[0];
-              break;
-            }
-          }
-          
-          if (drugInfo) {
-            // We found a valid medication in RxNav!
-            const confirmedName = drugInfo.name;
-            setMedicationInfo({ name: confirmedName });
-            
-            // Get more details using RxClass API
-            const rxClassUrl = `https://rxnav.nlm.nih.gov/REST/rxclass/class/byDrugName.json?drugName=${encodeURIComponent(confirmedName)}&relaSource=MEDRT`;
-            const classResponse = await axios.get(rxClassUrl);
-            
-            let className = 'Unknown';
-            if (classResponse.data && classResponse.data.rxclassDrugInfoList && 
-                classResponse.data.rxclassDrugInfoList.rxclassDrugInfo) {
-              const drugClasses = classResponse.data.rxclassDrugInfoList.rxclassDrugInfo;
-              if (drugClasses.length > 0) {
-                className = drugClasses[0].rxclassMinConceptItem.className;
-              }
-            }
-            
-            setMedicationDetails({
-              brandName: confirmedName,
-              genericName: drugInfo.synonym || confirmedName,
-              activeIngredient: drugInfo.tty || 'Unknown',
-              indications: className || 'Unknown',
-              warnings: 'See package insert for details',
-              dosage: 'See package insert for details',
-              interactions: 'See package insert for details',
-              manufacturer: 'Unknown',
-            });
-            
-            // We found a match, so we can stop checking other potential names
-            setFetchingDetails(false);
-            return;
-          }
-        }
-      } catch (error) {
-        console.error(`Error validating medication name "${medName}":`, error);
-        // Continue to the next potential name
-      }
+    // If no good guess, take the first non-empty line
+    if (!bestLine && lines.length > 0) {
+      const words = lines[0].split(/\s+/);
+      bestLine = words.slice(0, Math.min(words.length, 3)).join(' ');
     }
     
-    // If we get here, none of the potential names matched a known medication
-    setMedicationInfo({ name: potentialNames[0] });
-    setMedicationDetails({
-      brandName: potentialNames[0],
-      genericName: 'Unknown - medication not found in database',
-      activeIngredient: 'Unknown',
-      indications: 'Unknown',
-      warnings: 'Unknown',
-      dosage: 'Unknown',
-      interactions: 'Unknown',
-      manufacturer: 'Unknown',
-    });
-    
-    setFetchingDetails(false);
+    return bestLine || 'Unknown Medication';
   };
 
   return (
@@ -317,7 +384,7 @@ export default function MedicationOCRScreen({ route }) {
                   </View>
                   
                   <View style={styles.infoSection}>
-                    <Text style={styles.label}>Used For:</Text>
+                    <Text style={styles.label}>Category/Used For:</Text>
                     <Text style={styles.value}>{medicationDetails.indications}</Text>
                   </View>
                   
