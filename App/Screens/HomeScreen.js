@@ -139,13 +139,13 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   cardContent: {
-    alignItems: 'center',
+    alignItems: 'left',
     marginBottom: 20,
   },
   cardDescription: {
     fontSize: 16,
     color: '#555',
-    textAlign: 'center',
+    textAlign: 'left',
     lineHeight: 22,
   },
   cardButton: {
@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 8,
-    alignSelf: 'center',
+    alignSelf: 'flex-start', 
   },
   cardButtonText: {
     color: '#fff',
