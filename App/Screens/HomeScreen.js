@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Button, 
   Image, 
@@ -8,14 +8,53 @@ import {
   ScrollView, 
   SafeAreaView, 
   TouchableOpacity,
-  Alert
+  Alert,
+  FlatList
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Camera } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export default function HomeScreen({ navigation }) {
-  const [image, setImage] = useState(null);
+export default function HomeScreen({ navigation, route }) {
+  const [scannedMedications, setScannedMedications] = useState([]);
+  
+  // Load scanned medications from storage when component mounts
+  useEffect(() => {
+    loadScannedMedications();
+  }, []);
+  
+  // Update when returning from OCR screen with new medication
+  useEffect(() => {
+    if (route.params?.newMedication) {
+      addNewMedication(route.params.newMedication);
+    }
+  }, [route.params?.newMedication]);
+
+  const loadScannedMedications = async () => {
+    try {
+      const storedMedications = await AsyncStorage.getItem('scannedMedications');
+      if (storedMedications) {
+        setScannedMedications(JSON.parse(storedMedications));
+      }
+    } catch (error) {
+      console.error('Error loading medications:', error);
+    }
+  };
+  
+  const saveScannedMedications = async (medications) => {
+    try {
+      await AsyncStorage.setItem('scannedMedications', JSON.stringify(medications));
+    } catch (error) {
+      console.error('Error saving medications:', error);
+    }
+  };
+  
+  const addNewMedication = (medication) => {
+    const updatedMedications = [medication, ...scannedMedications];
+    setScannedMedications(updatedMedications);
+    saveScannedMedications(updatedMedications);
+  };
   
   const takePhoto = async () => {
     const { status } = await Camera.requestCameraPermissionsAsync();
@@ -26,7 +65,6 @@ export default function HomeScreen({ navigation }) {
         quality: 1,
       });
       if (!result.canceled) {
-        setImage(result.assets[0].uri);
         navigation.navigate('OCR', { imageUri: result.assets[0].uri });
       }
     }
@@ -40,7 +78,6 @@ export default function HomeScreen({ navigation }) {
       quality: 1,
     });
     if (!result.canceled) {
-      setImage(result.assets[0].uri);
       navigation.navigate('OCR', { imageUri: result.assets[0].uri });
     }
   };
@@ -57,10 +94,27 @@ export default function HomeScreen({ navigation }) {
     );
   };
   
+  const renderMedicationItem = ({ item }) => (
+    <View style={styles.medicationItem}>
+      <Image source={{ uri: item.imageUri }} style={styles.medicationImage} />
+      <View style={styles.medicationInfo}>
+        <Text style={styles.medicationName}>{item.name || 'Unknown Medication'}</Text>
+        <Text style={styles.medicationDetails}>
+          {item.genericName || 'Generic name not available'}
+        </Text>
+      </View>
+      <TouchableOpacity 
+        style={styles.viewDetailsButton}
+        onPress={() => navigation.navigate('OCR', { imageUri: item.imageUri })}
+      >
+        <Text style={styles.viewDetailsText}>View</Text>
+      </TouchableOpacity>
+    </View>
+  );
+  
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.header}>
+      <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
@@ -69,25 +123,45 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>MediVision</Text>
         </View>
-        
-        {/* MediVision Card */}
-        <View style={styles.card}>
-          <View style={styles.cardContent}>
-            <Text style={styles.cardDescription}>
-              MediVision makes identifying medication a breeze. Just snap a photo and instantly know what you're taking. No more squinting at tiny labels or confusion information about your pills on the Internet.
-            </Text>
-          </View>
-          
-          <TouchableOpacity 
-            style={styles.cardButton} 
-            onPress={showImageOptions}
-          >
-            <Text style={styles.cardButtonText}>Try MediVision</Text>
-          </TouchableOpacity>
+      
+      {/* MediVision Card */}
+      <View style={styles.card}>
+        <View style={styles.cardContent}>
+          <Text style={styles.cardDescription}>
+            MediVision makes identifying medication a breeze. Just snap a photo and instantly know what you're taking. No more squinting at tiny labels or confusion information about your pills on the Internet.
+          </Text>
         </View>
         
-        {image && <Image source={{ uri: image }} style={styles.image} />}
-      </ScrollView>
+        <TouchableOpacity 
+          style={styles.cardButton} 
+          onPress={showImageOptions}
+        >
+          <Text style={styles.cardButtonText}>Try MediVision</Text>
+        </TouchableOpacity>
+      </View>
+      
+      {/* Medication History */}
+      {scannedMedications.length > 0 && (
+        <View style={styles.historyContainer}>
+          <Text style={styles.historyTitle}>History</Text>
+          <FlatList
+            data={scannedMedications}
+            renderItem={renderMedicationItem}
+            keyExtractor={(item, index) => index.toString()}
+            contentContainerStyle={styles.medicationList}
+          />
+        </View>
+      )}
+      
+      {scannedMedications.length === 0 && (
+        <View style={styles.emptyHistoryContainer}>
+          <Ionicons name="medical" size={50} color="#ccc" />
+          <Text style={styles.emptyHistoryText}>No medications scanned yet</Text>
+          <Text style={styles.emptyHistorySubtext}>
+            Add your first medication by tapping the "Try MediVision" button above
+          </Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -97,35 +171,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  scrollView: {
-    flex: 1,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 20,
   },
-  backButton: {
-    padding: 10,
-    borderRadius: 50,
-    backgroundColor: '#f0f0f0',
-  },
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    marginLeft: 'auto',
-    marginRight: 20,
   },
-  image: {
-    width: 200,
-    height: 200,
-    alignSelf: 'center',
-    marginTop: 20,
-    borderRadius: 8,
+  addButton: {
+    padding: 10,
+    borderRadius: 50,
+    backgroundColor: '#000',
   },
-
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -159,5 +221,79 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
-  }
+  },
+  historyContainer: {
+    flex: 1,
+    paddingHorizontal: 16,
+    marginTop: 10,
+  },
+  historyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  medicationList: {
+    paddingBottom: 20,
+  },
+  medicationItem: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 12,
+    marginVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    alignItems: 'center',
+  },
+  medicationImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 8,
+  },
+  medicationInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  medicationName: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  medicationDetails: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
+  viewDetailsButton: {
+    backgroundColor: '#f0f0f0',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  viewDetailsText: {
+    color: '#333',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  emptyHistoryContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyHistoryText: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 10,
+    color: '#555',
+  },
+  emptyHistorySubtext: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 6,
+    maxWidth: '80%',
+  },
 });

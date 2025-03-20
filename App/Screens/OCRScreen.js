@@ -3,7 +3,7 @@ import { View, Text, ActivityIndicator, StyleSheet, ScrollView, Image, SafeAreaV
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function MedicationOCRScreen({ route }) {
+export default function MedicationOCRScreen({ route, navigation }) {
   const { imageUri } = route.params;
   const [rawText, setRawText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -73,11 +73,10 @@ export default function MedicationOCRScreen({ route }) {
     setFetchingDetails(true);
     
     try {
-      // Your existing code...
-      // Split the text into lines and prepare for processing
+     
       const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
       
-      // Try direct API lookup for each non-empty line
+
       let foundValidMed = false;
       for (const line of lines) {
         // Skip very short lines or lines that are likely not medication names
@@ -94,13 +93,13 @@ export default function MedicationOCRScreen({ route }) {
         const isValidMed = await checkIfValidMedication(potentialName);
         
         if (isValidMed) {
-          // If we found a valid medication, stop checking other lines
+          // If found a valid medication, stop checking other lines
           foundValidMed = true;
           break;
         }
       }
       
-      // If no line matched a valid medication, try the fallback approaches
+      // If no line matched a valid medications
       if (!foundValidMed) {
         await handleFallbackApproach(lines);
       }
@@ -122,7 +121,7 @@ export default function MedicationOCRScreen({ route }) {
 
   const checkIfValidMedication = async (name) => {
     try {
-      // Special case for Vitamin C
+      
       if (name.toLowerCase().includes('vitamin c')) {
         setMedicationInfo({ name: 'Vitamin C' });
         setMedicationDetails({
@@ -135,7 +134,7 @@ export default function MedicationOCRScreen({ route }) {
         return true;
       }
       
-      // Use RxNav API for medication validation
+      
       const encodedName = encodeURIComponent(name);
       const rxNavUrl = `https://rxnav.nlm.nih.gov/REST/drugs.json?name=${encodedName}`;
       const rxResponse = await axios.get(rxNavUrl);
@@ -154,11 +153,11 @@ export default function MedicationOCRScreen({ route }) {
         }
         
         if (drugInfo) {
-          // We found a valid medication in RxNav!
+          // Found a valid medication in RxNav!
           const confirmedName = drugInfo.name;
           setMedicationInfo({ name: confirmedName });
           
-          // Get more details using RxClass API
+          // Get more details 
           await fetchMedicationDetails(drugInfo);
           return true;
         }
@@ -189,11 +188,11 @@ export default function MedicationOCRScreen({ route }) {
         console.error('Error fetching class info:', classError);
       }
       
-      // Try getting more detailed info from RxNav
+     
       let activeIngredient = 'Unknown';
       let synonym = drugInfo.synonym || 'Unknown';
       
-      // Try to get ingredients
+      
       try {
         const ingredientUrl = `https://rxnav.nlm.nih.gov/REST/rxcui/${drugInfo.rxcui}/related.json?tty=IN`;
         const ingredientResponse = await axios.get(ingredientUrl);
@@ -233,11 +232,11 @@ export default function MedicationOCRScreen({ route }) {
   };
 
   const handleFallbackApproach = async (lines) => {
-    // Try to find the most likely medication name
+    
     const bestGuessName = findBestMedicationName(lines, rawText);
     setMedicationInfo({ name: bestGuessName });
     
-    // Check for common Indian pharmaceutical manufacturers
+    
     const indianManufacturers = [
       'cipla', 'sun pharma', 'lupin', 'dr reddy', 'torrent', 'zydus', 
       'ranbaxy', 'glenmark', 'alkem', 'mankind', 'intas', 'abbott'
@@ -251,7 +250,7 @@ export default function MedicationOCRScreen({ route }) {
       }
     }
     
-    // Check for common categories
+    
     let category = 'Pharmaceutical Medicine (Indian Region)';
     const lowerText = rawText.toLowerCase();
     if (lowerText.includes('ayur') || lowerText.includes('herbal')) {
@@ -274,7 +273,7 @@ export default function MedicationOCRScreen({ route }) {
   };
 
   const findBestMedicationName = (lines, fullText) => {
-    // Common medication patterns to help identify medication names
+   
     const medPatterns = [
       /\b(tablet|capsule|solution|suspension|injection|syrup|chewable)\b/i,
       /\b\d+\s*(mg|mcg|ml|g)\b/i,
@@ -295,14 +294,14 @@ export default function MedicationOCRScreen({ route }) {
       // Prioritize lines near the top
       score += Math.max(0, 10 - i);
       
-      // Check for common medication name patterns
+
       for (const pattern of medPatterns) {
         if (pattern.test(line)) {
           score += 5;
         }
       }
       
-      // Special case for vitamins
+
       if (/vitamin\s+[a-z]/i.test(line)) {
         score += 10;
       }
@@ -321,7 +320,7 @@ export default function MedicationOCRScreen({ route }) {
       }
     }
     
-    // If no good guess, take the first non-empty line
+
     if (!bestLine && lines.length > 0) {
       const words = lines[0].split(/\s+/);
       bestLine = words.slice(0, Math.min(words.length, 3)).join(' ');
@@ -330,13 +329,32 @@ export default function MedicationOCRScreen({ route }) {
     return bestLine || 'Unknown Medication';
   };
 
+
+  const goBackWithMedicationInfo = () => {
+    if (medicationInfo.name) {
+      const medicationData = {
+        imageUri: imageUri,
+        name: medicationInfo.name,
+        genericName: medicationDetails?.genericName,
+        activeIngredient: medicationDetails?.activeIngredient,
+        indications: medicationDetails?.indications,
+        manufacturer: medicationDetails?.manufacturer,
+        timestamp: new Date().toISOString(),
+      };
+      
+      navigation.navigate('Home', { newMedication: medicationData });
+    } else {
+      navigation.goBack();
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
     <ScrollView style={styles.container}>
     <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => navigation.goBack()}
+            onPress={goBackWithMedicationInfo}
           >
             <Ionicons name="chevron-back" size={24} color="black" />
           </TouchableOpacity>
