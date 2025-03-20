@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, ScrollView, Image } from 'react-native';
+import { View, Text, ActivityIndicator, StyleSheet, ScrollView, Image, SafeAreaView, TouchableOpacity} from 'react-native';
 import axios from 'axios';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function MedicationOCRScreen({ route }) {
   const { imageUri } = route.params;
@@ -330,7 +331,17 @@ export default function MedicationOCRScreen({ route }) {
   };
 
   return (
+    <SafeAreaView style={styles.container}>
     <ScrollView style={styles.container}>
+    <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="chevron-back" size={24} color="black" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>MediVision</Text>
+        </View>
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0066CC" />
@@ -399,6 +410,7 @@ export default function MedicationOCRScreen({ route }) {
         </View>
       )}
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -406,7 +418,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
-    backgroundColor: '#F5F7FA',
+    backgroundColor: '#fff',
+  },
+  scrollView: {
+    flex: 1,
   },
   loadingContainer: {
     alignItems: 'center',
@@ -418,6 +433,22 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 14,
     color: '#0066CC',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    
+  },
+  backButton: {
+    padding: 10,
+    borderRadius: 50,
+    backgroundColor: '#f0f0f0',
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginLeft: 'auto',
+    marginRight: 20,
   },
   resultContainer: {
     flex: 1,
