@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, ScrollView, Image, SafeAreaView, TouchableOpacity} from 'react-native';
+import { View, Text, ActivityIndicator, StyleSheet, ScrollView, Image, SafeAreaView, TouchableOpacity, Dimensions } from 'react-native';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -348,86 +348,89 @@ export default function MedicationOCRScreen({ route, navigation }) {
     }
   };
 
+  const windowHeight = Dimensions.get('window').height;
+
   return (
     <SafeAreaView style={styles.container}>
-    <ScrollView style={styles.container}>
-    <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={goBackWithMedicationInfo}
-          >
-            <Ionicons name="chevron-back" size={24} color="black" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>MediVision</Text>
-        </View>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={goBackWithMedicationInfo}
+        >
+          <Ionicons name="chevron-back" size={24} color="black" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>MediVision</Text>
+      </View>
+      
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#0066CC" />
+        <View style={[styles.loadingContainer, { height: windowHeight * 0.8 }]}>
+          <ActivityIndicator size="large" color="#2196F3" />
           <Text style={styles.loadingText}>Analyzing medication label...</Text>
         </View>
       ) : error ? (
         <Text style={styles.errorText}>{error}</Text>
       ) : (
-        <View style={styles.resultContainer}>
-          {/* Original Image & Extracted Text section */}
-          <Text style={styles.sectionTitle}>Original Image & Extracted Text</Text>
-          <View style={styles.imageTextContainer}>
-            <View style={styles.imageContainer}>
-              <Image 
-                source={{ uri: imageUri }} 
-                style={styles.medicationImage} 
-                resizeMode="contain"
-              />
-            </View>
-            
-            <View style={styles.rawTextContainerSide}>
-              <Text style={styles.rawText}>{rawText}</Text>
-            </View>
-          </View>
-          
-          {/* Medication Information section */}
-          <Text style={styles.sectionTitle}>Medication Information</Text>
-          
-          {fetchingDetails ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#0066CC" />
-              <Text style={styles.loadingText}>Validating medication and loading details...</Text>
-            </View>
-          ) : (
-            <>
-              <View style={styles.infoSection}>
-                <Text style={styles.label}>Medication Name:</Text>
-                <Text style={styles.value}>{medicationInfo.name || 'Not detected'}</Text>
+        <ScrollView style={styles.scrollView}>
+          <View style={styles.resultContainer}>
+            {/* Original Image & Extracted Text section */}
+            <Text style={styles.sectionTitle}>Original Image & Extracted Text</Text>
+            <View style={styles.imageTextContainer}>
+              <View style={styles.imageContainer}>
+                <Image 
+                  source={{ uri: imageUri }} 
+                  style={styles.medicationImage} 
+                  resizeMode="contain"
+                />
               </View>
               
-              {medicationDetails && (
-                <>
-                  <View style={styles.infoSection}>
-                    <Text style={styles.label}>Generic Name:</Text>
-                    <Text style={styles.value}>{medicationDetails.genericName}</Text>
-                  </View>
-                  
-                  <View style={styles.infoSection}>
-                    <Text style={styles.label}>Active Ingredient:</Text>
-                    <Text style={styles.value}>{medicationDetails.activeIngredient}</Text>
-                  </View>
-                  
-                  <View style={styles.infoSection}>
-                    <Text style={styles.label}>Category/Used For:</Text>
-                    <Text style={styles.value}>{medicationDetails.indications}</Text>
-                  </View>
-                  
-                  <View style={styles.infoSection}>
-                    <Text style={styles.label}>Manufacturer:</Text>
-                    <Text style={styles.value}>{medicationDetails.manufacturer}</Text>
-                  </View>
-                </>
-              )}
-            </>
-          )}
-        </View>
+              <View style={styles.rawTextContainerSide}>
+                <Text style={styles.rawText}>{rawText}</Text>
+              </View>
+            </View>
+            
+            {/* Medication Information section */}
+            <Text style={styles.sectionTitle}>Medication Information</Text>
+            
+            {fetchingDetails ? (
+              <View style={styles.fetchingContainer}>
+                <ActivityIndicator size="small" color="#2196F3" />
+                <Text style={styles.loadingText}>Validating medication and loading details...</Text>
+              </View>
+            ) : (
+              <>
+                <View style={styles.infoSection}>
+                  <Text style={styles.label}>Medication Name:</Text>
+                  <Text style={styles.value}>{medicationInfo.name || 'Not detected'}</Text>
+                </View>
+                
+                {medicationDetails && (
+                  <>
+                    <View style={styles.infoSection}>
+                      <Text style={styles.label}>Generic Name:</Text>
+                      <Text style={styles.value}>{medicationDetails.genericName}</Text>
+                    </View>
+                    
+                    <View style={styles.infoSection}>
+                      <Text style={styles.label}>Active Ingredient:</Text>
+                      <Text style={styles.value}>{medicationDetails.activeIngredient}</Text>
+                    </View>
+                    
+                    <View style={styles.infoSection}>
+                      <Text style={styles.label}>Category/Used For:</Text>
+                      <Text style={styles.value}>{medicationDetails.indications}</Text>
+                    </View>
+                    
+                    <View style={styles.infoSection}>
+                      <Text style={styles.label}>Manufacturer:</Text>
+                      <Text style={styles.value}>{medicationDetails.manufacturer}</Text>
+                    </View>
+                  </>
+                )}
+              </>
+            )}
+          </View>
+        </ScrollView>
       )}
-    </ScrollView>
     </SafeAreaView>
   );
 }
@@ -435,27 +438,35 @@ export default function MedicationOCRScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
     backgroundColor: '#fff',
   },
   scrollView: {
     flex: 1,
+    padding: 16,
   },
   loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  fetchingContainer: {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
     minHeight: 100,
   },
   loadingText: {
-    marginTop: 8,
-    fontSize: 14,
-    color: '#0066CC',
+    marginTop: 12,
+    fontSize: 16,
+    color: '#000',
+    textAlign: 'center',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   backButton: {
     padding: 10,

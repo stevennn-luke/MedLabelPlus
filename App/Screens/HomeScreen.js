@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Button, 
   Image, 
@@ -15,15 +15,26 @@ import * as ImagePicker from 'expo-image-picker';
 import { Camera } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 
 export default function HomeScreen({ navigation, route }) {
   const [scannedMedications, setScannedMedications] = useState([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
+  // Load medications when component mounts
   useEffect(() => {
     loadScannedMedications();
   }, []);
   
+  // Load medications when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadScannedMedications();
+      return () => {}; // cleanup function
+    }, [])
+  );
 
+  // Handle new medication from route params
   useEffect(() => {
     if (route.params?.newMedication) {
       addNewMedication(route.params.newMedication);
@@ -35,6 +46,8 @@ export default function HomeScreen({ navigation, route }) {
       const storedMedications = await AsyncStorage.getItem('scannedMedications');
       if (storedMedications) {
         setScannedMedications(JSON.parse(storedMedications));
+        // Update refresh key to trigger re-render
+        setRefreshKey(prevKey => prevKey + 1);
       }
     } catch (error) {
       console.error('Error loading medications:', error);
@@ -44,6 +57,8 @@ export default function HomeScreen({ navigation, route }) {
   const saveScannedMedications = async (medications) => {
     try {
       await AsyncStorage.setItem('scannedMedications', JSON.stringify(medications));
+      // Update refresh key to trigger re-render
+      setRefreshKey(prevKey => prevKey + 1);
     } catch (error) {
       console.error('Error saving medications:', error);
     }
@@ -121,7 +136,7 @@ export default function HomeScreen({ navigation, route }) {
             <Ionicons name="chevron-back" size={24} color="black" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>MediVision</Text>
-        </View>
+      </View>
       
       {/* MediVision Card */}
       <View style={styles.card}>
@@ -146,8 +161,9 @@ export default function HomeScreen({ navigation, route }) {
           <FlatList
             data={scannedMedications}
             renderItem={renderMedicationItem}
-            keyExtractor={(item, index) => index.toString()}
+            keyExtractor={(item, index) => `${index}-${refreshKey}`}
             contentContainerStyle={styles.medicationList}
+            extraData={refreshKey}
           />
         </View>
       )}
