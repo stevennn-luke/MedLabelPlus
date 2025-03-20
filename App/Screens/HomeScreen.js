@@ -18,13 +18,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function HomeScreen({ navigation, route }) {
   const [scannedMedications, setScannedMedications] = useState([]);
-  
-  // Load scanned medications from storage when component mounts
+
   useEffect(() => {
     loadScannedMedications();
   }, []);
   
-  // Update when returning from OCR screen with new medication
+
   useEffect(() => {
     if (route.params?.newMedication) {
       addNewMedication(route.params.newMedication);
@@ -87,8 +86,8 @@ export default function HomeScreen({ navigation, route }) {
       'Choose an option',
       'How would you like to add an image?',
       [
-        { text: 'Take a photo', onPress: takePhoto },
-        { text: 'Pick an image from gallery', onPress: pickImage },
+        { text: 'Take a Picture', onPress: takePhoto },
+        { text: 'Choose from Gallery', onPress: pickImage },
         { text: 'Cancel', style: 'cancel' }
       ]
     );
